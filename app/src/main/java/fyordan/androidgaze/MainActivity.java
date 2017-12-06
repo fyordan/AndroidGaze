@@ -29,6 +29,7 @@ import android.widget.Toast;
 import com.google.android.gms.vision.CameraSource;
 import com.google.android.gms.vision.Frame;
 import com.google.android.gms.vision.MultiProcessor;
+import com.google.android.gms.vision.Tracker;
 import com.google.android.gms.vision.face.Face;
 import com.google.android.gms.vision.face.FaceDetector;
 import com.google.android.gms.vision.face.Landmark;
@@ -39,13 +40,6 @@ import java.util.List;
 
 public class MainActivity extends Activity {
 
-    protected static int mCam = 1;      // the number of the camera to use (0 => rear facing)
-    protected static Camera mCamera = null;
-    private int nPixels = 480 * 640;      // approx number of pixels desired in preview
-    protected static int mCameraHeight;   // preview height (determined later)
-    protected static int mCameraWidth;    // preview width  (determined later)
-    protected static DrawOnTop mDrawOnTop;
-    protected static ViewGroup.LayoutParams mLayoutParams = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     private static boolean DBG = BuildConfig.DEBUG; // provide normal log output only in debug version
 
     protected static FaceDetector faceDetector = null;
@@ -64,6 +58,8 @@ public class MainActivity extends Activity {
         getPermissions();   // NOTE: can *not* assume we actually have permissions after this call
         this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
 
+        setContentView(R.layout.activity_main);
+
         // Face Tracking stuff
         //mPreview = new Preview(this, DrawOnTop); // TODO(fyordan): Probably need to create a better preview
         mPreview = (CameraSourcePreview) findViewById(R.id.preview);
@@ -74,16 +70,17 @@ public class MainActivity extends Activity {
                 .build();
         faceDetector.setProcessor(
                 new MultiProcessor.Builder<>(new GraphicFaceTrackerFactory()).build());
-        mCameraSource = new CameraSource.Builder()
+        mCameraSource = new CameraSource.Builder(getApplicationContext(), faceDetector)
                 .setRequestedPreviewSize(480, 640)
                 .setFacing(CameraSource.CAMERA_FACING_FRONT)
-                .build(getApplicationContext(), faceDetector);
+                .setRequestedFps(30.0f)
+                .build();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        releaseCamera(mCam, true);    // release camera here
+        mPreview.stop();
     }
 
     // which means the CameraDevice has to be (re-)opened when the activity is (re-)started
@@ -92,75 +89,21 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (bCameraPermissionGranted) {
-            openCamera(mCam);    // (re-)open camera here
-            getPreviewSize(mCamera, nPixels);    // pick an available preview size
-
-            // Create our DrawOnTop view.
-            mDrawOnTop = new DrawOnTop(this);
-            // Create our Preview view
-            mPreview = new Preview(this, mDrawOnTop);
-            // and set preview as the content of our activity.
-            setContentView(mPreview);
-            // and add overlay to content of our activity.
-            addContentView(mDrawOnTop, mLayoutParams);
+        if (bCameraPermissionGranted && (mCameraSource != null) && (mPreview != null)) {
+            try {
+                mPreview.start(mCameraSource, mGraphicOverlay);
+            } catch(IOException e) {
+                // WHO CARES
+            }
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        releaseCamera(mCam, true);    // just in case it hasn't been released yet...
-        faceDetector.release();
+        mCameraSource.release();
     }
-
-    protected static void openCamera(int nCam) {
-        String TAG = "openCamera";
-        if (mCamera == null) {
-            try {
-                if (DBG) Log.i(TAG, "Opening camera " + nCam);
-                mCamera = Camera.open(nCam);
-            } catch (Exception e) {
-                Log.e(TAG, "ERROR: camera open exception " + e);
-                e.printStackTrace();
-                System.exit(0); // should not happen
-            }
-        } else Log.e(TAG, "Camera already open");   // should not happen
-    }
-
-    protected static void releaseCamera(int nCam, boolean previewFlag) {
-        String TAG = "releaseCamera";
-        if (mCamera != null) {
-            if (DBG) Log.i(TAG, "Releasing camera " + nCam);
-            if (previewFlag) {    // if we have been getting previews from this camera
-                mCamera.setPreviewCallback(null);
-                mCamera.stopPreview();
-            }
-            mCamera.release();
-            mCamera = null; // so we know it has been released
-        } else Log.e(TAG, "No camera to release");
-    }
-
-    private static void getPreviewSize(Camera mCamera, int nPixels) { //	pick one of the available preview size
-        String TAG = "getPreviewSize";
-        Camera.Parameters params = mCamera.getParameters();
-        List<Camera.Size> cSizes = params.getSupportedPictureSizes();
-        int dPixels, dMinPixels = -1;
-        if (DBG) Log.i(TAG, "Looking for about " + nPixels + " pixels");
-        for (Camera.Size cSize : cSizes) {    // step through available camera preview image sizes
-            if (DBG) Log.i(TAG, "Size " + cSize.height + " x " + cSize.width); // debug log output
-//			use desired pixel count as a guide to selection
-            dPixels = Math.abs(cSize.height * cSize.width - nPixels);
-            if (dMinPixels < 0 || dPixels < dMinPixels) {
-                mCameraHeight = cSize.height;
-                mCameraWidth = cSize.width;
-                dMinPixels = dPixels;
-            }
-        }
-        if (DBG)
-            Log.i(TAG, "Nearest fit available preview image size: " + mCameraHeight + " x " + mCameraWidth);
-    }
-
+/*
     //------- nested class DrawOnTop ---------------------------------------------------------------
     class DrawOnTop extends View {
         Bitmap mBitmap;
@@ -267,7 +210,7 @@ public class MainActivity extends Activity {
                         sumC += Math.pow(d_i*gradients[k][0] + d_j*gradients[k][1], 2);
                     }
                     // TODO(fyordan): w_c should be the value in a gaussian filtered graydata
-                    sumC *= grayData[n];
+                    // sumC *= grayData[n];
                     if (sumC > max_c) {
                         c_n = n;
                         max_c = sumC;
@@ -449,6 +392,8 @@ public class MainActivity extends Activity {
 
     }
 
+    */
+
     // Used to load the 'native-lib' library on application startup.
     static {
         System.loadLibrary("native-lib");
@@ -515,17 +460,10 @@ public class MainActivity extends Activity {
                         bUseCameraFlag = false;
                         String str = "You must grant CAMERA permission to use the camera!";
                         Log.e(TAG, str);
-                        makeToast(str, 1);
                     }
                     break;
             }
         }
-    }
-
-    private void makeToast(CharSequence message, int nLength) {
-        // Toast.LENGTH_SHORT == 0, Toast.LENGTH_LONG == 1
-        Toast toast = Toast.makeText(this, message, nLength);
-        toast.show();
     }
 
     //==============================================================================================
@@ -590,6 +528,102 @@ public class MainActivity extends Activity {
         @Override
         public void onDone() {
             mOverlay.remove(mFaceGraphic);
+        }
+    }
+
+    /**
+     * Graphic instance for rendering face position, orientation, and landmarks within an associated
+     * graphic overlay view.
+     */
+    class FaceGraphic extends GraphicOverlay.Graphic {
+        private static final float ID_TEXT_SIZE = 40.0f;
+        private static final float BOX_STROKE_WIDTH = 5.0f;
+
+        private final int COLOR_CHOICES[] = {
+                Color.BLUE,
+                Color.CYAN,
+                Color.GREEN,
+                Color.MAGENTA,
+                Color.RED,
+                Color.WHITE,
+                Color.YELLOW
+        };
+        private int mCurrentColorIndex = 0;
+
+        private Paint mFacePositionPaint;
+        private Paint mIdPaint;
+        private Paint mBoxPaint;
+
+        private volatile Face mFace;
+
+        FaceGraphic(GraphicOverlay overlay) {
+            super(overlay);
+
+            mCurrentColorIndex = (mCurrentColorIndex + 1) % COLOR_CHOICES.length;
+            final int selectedColor = COLOR_CHOICES[mCurrentColorIndex];
+
+            mFacePositionPaint = new Paint();
+            mFacePositionPaint.setColor(selectedColor);
+
+            mIdPaint = new Paint();
+            mIdPaint.setColor(selectedColor);
+            mIdPaint.setTextSize(ID_TEXT_SIZE);
+
+            mBoxPaint = new Paint();
+            mBoxPaint.setColor(selectedColor);
+            mBoxPaint.setStyle(Paint.Style.STROKE);
+            mBoxPaint.setStrokeWidth(BOX_STROKE_WIDTH);
+        }
+
+        void setId(int id) {
+            mFaceId = id;
+        }
+
+
+        /**
+         * Updates the face instance from the detection of the most recent frame.  Invalidates the
+         * relevant portions of the overlay to trigger a redraw.
+         */
+        void updateFace(Face face) {
+            mFace = face;
+            postInvalidate();
+        }
+
+        /**
+         * Draws the face annotations for position on the supplied canvas.
+         */
+        @Override
+        public void draw(Canvas canvas) {
+            Face face = mFace;
+            if (face == null) {
+                return;
+            }
+
+            // Draws a circle at the position of the detected face, with the face's track id below.
+            float x = translateX(face.getPosition().x + face.getWidth() / 2);
+            float y = translateY(face.getPosition().y + face.getHeight() / 2);
+
+            // Draws a bounding box around the face.
+            float xOffset = scaleX(face.getWidth() / 2.0f);
+            float yOffset = scaleY(face.getHeight() / 2.0f);
+            float left = x - xOffset;
+            float top = y - yOffset;
+            float right = x + xOffset;
+            float bottom = y + yOffset;
+            canvas.drawRect(left, top, right, bottom, mBoxPaint);
+
+            for (Landmark landmark : face.getLandmarks()) {
+                int landmark_type = landmark.getType();
+                if (landmark_type == Landmark.LEFT_EYE || landmark_type == Landmark.RIGHT_EYE) {
+                    int cx = (int) translateX(landmark.getPosition().x);
+                    int cy = (int) translateY(landmark.getPosition().y);
+                    Paint paint = new Paint();
+                    paint.setColor(Color.GREEN);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(5);
+                    canvas.drawCircle(cx, cy, 10, paint);
+                }
+            }
         }
     }
 }
