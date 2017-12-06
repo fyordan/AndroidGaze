@@ -6,11 +6,15 @@ import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.YuvImage;
 import android.hardware.Camera;
 import android.os.Build;
 import android.support.annotation.NonNull;
@@ -27,6 +31,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.vision.CameraSource;
+import com.google.android.gms.vision.Detector;
 import com.google.android.gms.vision.Frame;
 import com.google.android.gms.vision.MultiProcessor;
 import com.google.android.gms.vision.Tracker;
@@ -34,7 +39,9 @@ import com.google.android.gms.vision.face.Face;
 import com.google.android.gms.vision.face.FaceDetector;
 import com.google.android.gms.vision.face.Landmark;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 
@@ -43,10 +50,12 @@ public class MainActivity extends Activity {
     private static boolean DBG = BuildConfig.DEBUG; // provide normal log output only in debug version
 
     protected static FaceDetector faceDetector = null;
-    protected static Frame mFrame = null;
+//    protected static Frame mFrame = null;
+//    protected static Bitmap mBitmap;
     protected CameraSource mCameraSource = null;
     protected CameraSourcePreview mPreview;
     protected GraphicOverlay mGraphicOverlay;
+    protected Bitmap mBitmap;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +80,7 @@ public class MainActivity extends Activity {
         faceDetector.setProcessor(
                 new MultiProcessor.Builder<>(new GraphicFaceTrackerFactory()).build());
         mCameraSource = new CameraSource.Builder(getApplicationContext(), faceDetector)
-                .setRequestedPreviewSize(480, 640)
+               // .setRequestedPreviewSize(640, 480)
                 .setFacing(CameraSource.CAMERA_FACING_FRONT)
                 .setRequestedFps(30.0f)
                 .build();
@@ -494,13 +503,6 @@ public class MainActivity extends Activity {
             mFaceGraphic = new FaceGraphic(overlay);
         }
 
-        /**
-         * Start tracking the detected face instance within the face overlay.
-         */
-        @Override
-        public void onNewItem(int faceId, Face item) {
-            mFaceGraphic.setId(faceId);
-        }
 
         /**
          * Update the position/characteristics of the face within the overlay.
@@ -575,10 +577,6 @@ public class MainActivity extends Activity {
             mBoxPaint.setStrokeWidth(BOX_STROKE_WIDTH);
         }
 
-        void setId(int id) {
-            mFaceId = id;
-        }
-
 
         /**
          * Updates the face instance from the detection of the most recent frame.  Invalidates the
@@ -624,6 +622,37 @@ public class MainActivity extends Activity {
                     canvas.drawCircle(cx, cy, 10, paint);
                 }
             }
+        }
+    }
+
+    class GazeDetector extends Detector<Face> {
+        private Detector<Face> mDelegate;
+
+        GazeDetector(Detector<Face> delegate) {
+            mDelegate = delegate;
+        }
+
+        public SparseArray<Face> detect(Frame frame) {
+            ByteBuffer buf = frame.getGrayscaleImageData();
+            byte[] b = new byte[buf.remaining()];
+            buf.get(b);
+            int w = mCameraSource.getPreviewSize().getWidth();
+            int h = mCameraSource.getPreviewSize().getHeight();
+            YuvImage yuvimage=new YuvImage(b, ImageFormat.NV21, w, h, null);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            yuvimage.compressToJpeg(
+                    new Rect(0, 0, w, h), 100, baos); // Where 100 is the quality of the generated jpeg
+            byte[] jpegArray = baos.toByteArray();
+            mBitmap = BitmapFactory.decodeByteArray(jpegArray, 0, jpegArray.length);
+            return mDelegate.detect(frame);
+        }
+
+        public boolean isOperational() {
+            return mDelegate.isOperational();
+        }
+
+        public boolean setFocus(int id) {
+            return mDelegate.setFocus(id);
         }
     }
 }
