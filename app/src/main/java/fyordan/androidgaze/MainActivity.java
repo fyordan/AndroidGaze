@@ -11,6 +11,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Paint;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -634,7 +635,7 @@ public class MainActivity extends Activity {
 
                     Bitmap eyeBitmap = Bitmap.createBitmap(mBitmap,
                             (int)landmark.getPosition().x-40, (int)landmark.getPosition().y-20, 80, 40);
-                    int iris_pixel = calculateEyeCenter(eyeBitmap, 1000000.0);
+                    int iris_pixel = calculateEyeCenter(eyeBitmap, 1000.0);
                     int iris_x = iris_pixel%eyeBitmap.getWidth();
                     int iris_y = iris_pixel/eyeBitmap.getWidth();
                     canvas.drawBitmap(eyeBitmap, 0, 0, paint);
@@ -655,6 +656,8 @@ public class MainActivity extends Activity {
             int[] grayData = new int[imageWidth*imageHeight];
             eyeMap.getPixels(grayData, 0, imageWidth, 0, 0, imageWidth, imageHeight);
             double[][] gradients = new double[(imageWidth-2)*(imageHeight-2)][2];
+//            Pair<Point, Pair<float, float>> [] gradients =
+//                    new Pair<Point, Pair<float,float>>[(imageWidth-2)*(imageHeight-2)];
             int k = 0;
             int magCount = 0;
             for(int i=1; i < imageWidth-1; i++) {
@@ -662,6 +665,8 @@ public class MainActivity extends Activity {
                     int n = j*imageWidth + i;
                     //double x = i - imageWidth/2;
                     //double y = imageHeight/2 - j;
+//                    gradients[k][0] = (grayData[n+1] - grayData[n]);
+//                    gradients[k][1] = (grayData[n + imageWidth] - grayData[n]);
                     gradients[k][0] = (grayData[n+1] - grayData[n]);
                     gradients[k][1] = (grayData[n + imageWidth] - grayData[n]);
                     double mag = Math.sqrt(Math.pow(gradients[k][0],2) + Math.pow(gradients[k][1],2));
@@ -673,6 +678,7 @@ public class MainActivity extends Activity {
                         gradients[k][0] = 0;
                         gradients[k][1] = 0;
                     }
+                    k++;
                 }
             }
             Log.e("CalculateEyeCenter", "mags above threshold: " + magCount);
@@ -680,8 +686,8 @@ public class MainActivity extends Activity {
             // For all potential centers
             int c_n = gradients.length/2;
             double max_c = 0;
-            for (int i=1; i < imageWidth-1; i+=10) {
-                for (int j=1; j < imageHeight; j+=10) {
+            for (int i=1; i < imageWidth-1; i+=3) {
+                for (int j=1; j < imageHeight; j+=3) {
                     int n = j*imageWidth + i;
                     double sumC = 0;
                     for (k = 0; k < gradients.length; k++) {
