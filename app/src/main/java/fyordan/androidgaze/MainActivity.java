@@ -50,12 +50,13 @@ public class MainActivity extends Activity {
     private static boolean DBG = BuildConfig.DEBUG; // provide normal log output only in debug version
 
     protected static FaceDetector faceDetector = null;
+    protected static GazeDetector gazeDetector = null;
 //    protected static Frame mFrame = null;
-//    protected static Bitmap mBitmap;
+    protected static Bitmap mBitmap;
+    protected static byte[] mFrameArray;
     protected CameraSource mCameraSource = null;
     protected CameraSourcePreview mPreview;
     protected GraphicOverlay mGraphicOverlay;
-    protected Bitmap mBitmap;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,9 +78,11 @@ public class MainActivity extends Activity {
                 .setTrackingEnabled(true)
                 .setLandmarkType(FaceDetector.ALL_LANDMARKS)
                 .build();
-        faceDetector.setProcessor(
+        gazeDetector = new GazeDetector(faceDetector);
+        gazeDetector.setProcessor(
                 new MultiProcessor.Builder<>(new GraphicFaceTrackerFactory()).build());
-        mCameraSource = new CameraSource.Builder(getApplicationContext(), faceDetector)
+
+        mCameraSource = new CameraSource.Builder(getApplicationContext(), gazeDetector)
                // .setRequestedPreviewSize(640, 480)
                 .setFacing(CameraSource.CAMERA_FACING_FRONT)
                 .setRequestedFps(30.0f)
@@ -177,7 +180,7 @@ public class MainActivity extends Activity {
             super.onDraw(canvas);
         } // end onDraw method
 
-        protected int calculateEyeCenter(int[] grayData, double gradientThreshold) {
+        protected int calculateEyeCenter(byte[] grayData, double gradientThreshold) {
             // TODO(fyordan): Shouldn't use mImageWidth and mImageHeight, but grayData dimensions.
             // Calculate gradients.
             // Ignore edges of image to not deal with boundaries.
@@ -597,6 +600,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
+
             // Draws a circle at the position of the detected face, with the face's track id below.
             float x = translateX(face.getPosition().x + face.getWidth() / 2);
             float y = translateY(face.getPosition().y + face.getHeight() / 2);
@@ -609,19 +613,98 @@ public class MainActivity extends Activity {
             float right = x + xOffset;
             float bottom = y + yOffset;
             canvas.drawRect(left, top, right, bottom, mBoxPaint);
+//            canvas.drawCircle(x,y,5,mBoxPaint);
+
+//            canvas.drawBitmap(mBitmap, left, top, null);
 
             for (Landmark landmark : face.getLandmarks()) {
                 int landmark_type = landmark.getType();
-                if (landmark_type == Landmark.LEFT_EYE || landmark_type == Landmark.RIGHT_EYE) {
+//                if (landmark_type == Landmark.LEFT_EYE || landmark_type == Landmark.RIGHT_EYE) {
+                if (landmark_type == Landmark.LEFT_EYE) {
                     int cx = (int) translateX(landmark.getPosition().x);
                     int cy = (int) translateY(landmark.getPosition().y);
                     Paint paint = new Paint();
                     paint.setColor(Color.GREEN);
                     paint.setStyle(Paint.Style.STROKE);
                     paint.setStrokeWidth(5);
-                    canvas.drawCircle(cx, cy, 10, paint);
+
+                    // TODO(fyordan): These numbers are arbitray, probably should be proportional to face dimensions.
+                    canvas.drawRect(cx-40, cy-20, cx+40, cy+20, paint);
+                    //canvas.drawCircle(cx, cy, 10, paint);
+
+                    Bitmap eyeBitmap = Bitmap.createBitmap(mBitmap,
+                            (int)landmark.getPosition().x-40, (int)landmark.getPosition().y-20, 80, 40);
+                    int iris_pixel = calculateEyeCenter(eyeBitmap, 1000000.0);
+                    int iris_x = iris_pixel%eyeBitmap.getWidth();
+                    int iris_y = iris_pixel/eyeBitmap.getWidth();
+                    canvas.drawBitmap(eyeBitmap, 0, 0, paint);
+                    canvas.drawCircle(iris_x, iris_y, 10, mBoxPaint);
+
                 }
             }
+        }
+
+        protected int calculateEyeCenter(Bitmap eyeMap, double gradientThreshold) {
+            // TODO(fyordan): Shouldn't use mImageWidth and mImageHeight, but grayData dimensions.
+            // Calculate gradients.
+            // Ignore edges of image to not deal with boundaries.
+            Log.e("CalculateEyeCenter", "Well it entered");
+            int imageWidth = eyeMap.getWidth();
+            int imageHeight = eyeMap.getHeight();
+            Log.e("CalculateEyeCenter", "Size is : " + imageWidth*imageHeight);
+            int[] grayData = new int[imageWidth*imageHeight];
+            eyeMap.getPixels(grayData, 0, imageWidth, 0, 0, imageWidth, imageHeight);
+            double[][] gradients = new double[(imageWidth-2)*(imageHeight-2)][2];
+            int k = 0;
+            int magCount = 0;
+            for(int i=1; i < imageWidth-1; i++) {
+                for (int j=1; j < imageHeight-1; j++) {
+                    int n = j*imageWidth + i;
+                    //double x = i - imageWidth/2;
+                    //double y = imageHeight/2 - j;
+                    gradients[k][0] = (grayData[n+1] - grayData[n]);
+                    gradients[k][1] = (grayData[n + imageWidth] - grayData[n]);
+                    double mag = Math.sqrt(Math.pow(gradients[k][0],2) + Math.pow(gradients[k][1],2));
+                    if (mag > gradientThreshold) {
+                        gradients[k][0] /= mag;
+                        gradients[k][1] /= mag;
+                        magCount++;
+                    } else {
+                        gradients[k][0] = 0;
+                        gradients[k][1] = 0;
+                    }
+                }
+            }
+            Log.e("CalculateEyeCenter", "mags above threshold: " + magCount);
+            Log.e("CalculateEyeCenter", "Now we need to iterate through them all again");
+            // For all potential centers
+            int c_n = gradients.length/2;
+            double max_c = 0;
+            for (int i=1; i < imageWidth-1; i+=10) {
+                for (int j=1; j < imageHeight; j+=10) {
+                    int n = j*imageWidth + i;
+                    double sumC = 0;
+                    for (k = 0; k < gradients.length; k++) {
+                        if (!(gradients[k][0]==0 || gradients[k][1]==0)) continue;
+                        int k_i = k%(imageWidth-2)+1;
+                        int k_j = k/(imageWidth-2)+1;
+                        double d_i = k_i - i;
+                        double d_j = k_j - j;
+                        double mag = Math.sqrt(Math.pow(d_i,2) + Math.pow(d_j,2));
+                        mag = mag == 0 ? 1 : mag;
+                        d_i /= mag;
+                        d_j /= mag;
+                        sumC += Math.pow(d_i*gradients[k][0] + d_j*gradients[k][1], 2);
+                    }
+                    // TODO(fyordan): w_c should be the value in a gaussian filtered graydata
+                    // sumC *= grayData[n];
+                    if (sumC > max_c) {
+                        c_n = n;
+                        max_c = sumC;
+                    }
+                }
+            }
+            return c_n;
         }
     }
 
@@ -633,17 +716,14 @@ public class MainActivity extends Activity {
         }
 
         public SparseArray<Face> detect(Frame frame) {
-            ByteBuffer buf = frame.getGrayscaleImageData();
-            byte[] b = new byte[buf.remaining()];
-            buf.get(b);
-            int w = mCameraSource.getPreviewSize().getWidth();
-            int h = mCameraSource.getPreviewSize().getHeight();
-            YuvImage yuvimage=new YuvImage(b, ImageFormat.NV21, w, h, null);
+            int w = frame.getMetadata().getWidth();
+            int h = frame.getMetadata().getHeight();
+            YuvImage yuvimage=new YuvImage(frame.getGrayscaleImageData().array(), ImageFormat.NV21, w, h, null);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             yuvimage.compressToJpeg(
                     new Rect(0, 0, w, h), 100, baos); // Where 100 is the quality of the generated jpeg
-            byte[] jpegArray = baos.toByteArray();
-            mBitmap = BitmapFactory.decodeByteArray(jpegArray, 0, jpegArray.length);
+            mFrameArray = baos.toByteArray();
+            mBitmap = BitmapFactory.decodeByteArray(mFrameArray, 0, mFrameArray.length);
             return mDelegate.detect(frame);
         }
 
