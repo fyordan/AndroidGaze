@@ -54,10 +54,17 @@ public class MainActivity extends Activity {
     protected static GazeDetector gazeDetector = null;
 //    protected static Frame mFrame = null;
     protected static Bitmap mBitmap;
+    protected static Bitmap mEyeBitmap;
+    protected static Bitmap mBitmapGradientMag;
     protected static byte[] mFrameArray;
+    protected static int[] mGrayData;
     protected CameraSource mCameraSource = null;
     protected CameraSourcePreview mPreview;
     protected GraphicOverlay mGraphicOverlay;
+
+    protected int eyeRegionWidth = 80;
+    protected int eyeRegionHeight = 60;
+    protected int iris_pixel = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -630,30 +637,42 @@ public class MainActivity extends Activity {
                     paint.setStrokeWidth(5);
 
                     // TODO(fyordan): These numbers are arbitray, probably should be proportional to face dimensions.
-                    canvas.drawRect(cx-40, cy-20, cx+40, cy+20, paint);
+                    canvas.drawRect(cx-eyeRegionWidth/2, cy-eyeRegionHeight/2,
+                            cx+eyeRegionWidth/2, cy+eyeRegionHeight/2, paint);
                     //canvas.drawCircle(cx, cy, 10, paint);
 
-                    Bitmap eyeBitmap = Bitmap.createBitmap(mBitmap,
-                            (int)landmark.getPosition().x-40, (int)landmark.getPosition().y-20, 80, 40);
-                    int iris_pixel = calculateEyeCenter(eyeBitmap, 1000.0);
-                    int iris_x = iris_pixel%eyeBitmap.getWidth();
-                    int iris_y = iris_pixel/eyeBitmap.getWidth();
-                    canvas.drawBitmap(eyeBitmap, 0, 0, paint);
-                    canvas.drawCircle(iris_x, iris_y, 10, mBoxPaint);
+                    mEyeBitmap = Bitmap.createBitmap(mBitmap,
+                            (int)landmark.getPosition().x-eyeRegionWidth/2,
+                            (int)landmark.getPosition().y-eyeRegionHeight/2,
+                            eyeRegionWidth, eyeRegionHeight);
 
+                    iris_pixel = calculateEyeCenter(mEyeBitmap, 10.0, 30);
+//                    if (mBitmapGradientMag != null)  canvas.drawBitmap(mBitmapGradientMag, 0, 0, paint);
+                    //canvas.drawBitmap(eyeBitmap, 0, 0, paint);
                 }
+            }
+            if (mEyeBitmap != null) {
+                Bitmap resizedBitmap = Bitmap.createScaledBitmap(mEyeBitmap,
+                        eyeRegionWidth*4,
+                        eyeRegionHeight*4,
+                        false);
+                canvas.drawBitmap(resizedBitmap, 0, 0, mBoxPaint);
+                int iris_x = iris_pixel%mEyeBitmap.getWidth()*4;
+                int iris_y = iris_pixel/mEyeBitmap.getWidth()*4;
+                canvas.drawCircle(iris_x, iris_y, 80, mBoxPaint);
             }
         }
 
-        protected int calculateEyeCenter(Bitmap eyeMap, double gradientThreshold) {
+        protected int calculateEyeCenter(Bitmap eyeMap, double gradientThreshold, int d_thresh) {
             // TODO(fyordan): Shouldn't use mImageWidth and mImageHeight, but grayData dimensions.
             // Calculate gradients.
             // Ignore edges of image to not deal with boundaries.
             Log.e("CalculateEyeCenter", "Well it entered");
             int imageWidth = eyeMap.getWidth();
             int imageHeight = eyeMap.getHeight();
+            int grayData[] = new int[imageWidth*imageHeight];
+            int mags[] = new int[(imageWidth-2)*(imageHeight-2)];
             Log.e("CalculateEyeCenter", "Size is : " + imageWidth*imageHeight);
-            int[] grayData = new int[imageWidth*imageHeight];
             eyeMap.getPixels(grayData, 0, imageWidth, 0, 0, imageWidth, imageHeight);
             double[][] gradients = new double[(imageWidth-2)*(imageHeight-2)][2];
 //            Pair<Point, Pair<float, float>> [] gradients =
@@ -667,9 +686,10 @@ public class MainActivity extends Activity {
                     //double y = imageHeight/2 - j;
 //                    gradients[k][0] = (grayData[n+1] - grayData[n]);
 //                    gradients[k][1] = (grayData[n + imageWidth] - grayData[n]);
-                    gradients[k][0] = (grayData[n+1] - grayData[n]);
-                    gradients[k][1] = (grayData[n + imageWidth] - grayData[n]);
+                    gradients[k][0] = (grayData[n+1] & 0xff) - (grayData[n] & 0xff);
+                    gradients[k][1] = (grayData[n + imageWidth] & 0xff) - (grayData[n] & 0xff);
                     double mag = Math.sqrt(Math.pow(gradients[k][0],2) + Math.pow(gradients[k][1],2));
+                    mags[k] = (int) mag;
                     if (mag > gradientThreshold) {
                         gradients[k][0] /= mag;
                         gradients[k][1] /= mag;
@@ -681,26 +701,41 @@ public class MainActivity extends Activity {
                     k++;
                 }
             }
+            //mBitmapGradientMag = BitmapFactory.decodeByteArray(mags, 0, mags.length);
+//            mBitmapGradientMag.copyPixelsFromBuffer(ByteBuffer.wrap(mags));
+            //mBitmapGradientMag = Bitmap.createBitmap(mags, imageWidth, imageHeight, Bitmap.Config.ARGB_8888);
             Log.e("CalculateEyeCenter", "mags above threshold: " + magCount);
             Log.e("CalculateEyeCenter", "Now we need to iterate through them all again");
             // For all potential centers
             int c_n = gradients.length/2;
             double max_c = 0;
-            for (int i=1; i < imageWidth-1; i+=3) {
-                for (int j=1; j < imageHeight; j+=3) {
+            for (int i=1; i < imageWidth-1; i+=5) {
+                for (int j=1; j < imageHeight-1; j+=5) {
                     int n = j*imageWidth + i;
+                    int k_left = Math.max(0, i - d_thresh - 1);
+                    int k_right= Math.min(imageWidth-2, i+d_thresh-1);
+                    int k_top = Math.max(0, j - d_thresh-1);
+                    int k_bottom = Math.min(imageHeight-2, j+d_thresh-1);
                     double sumC = 0;
-                    for (k = 0; k < gradients.length; k++) {
-                        if (!(gradients[k][0]==0 || gradients[k][1]==0)) continue;
-                        int k_i = k%(imageWidth-2)+1;
-                        int k_j = k/(imageWidth-2)+1;
-                        double d_i = k_i - i;
-                        double d_j = k_j - j;
-                        double mag = Math.sqrt(Math.pow(d_i,2) + Math.pow(d_j,2));
-                        mag = mag == 0 ? 1 : mag;
-                        d_i /= mag;
-                        d_j /= mag;
-                        sumC += Math.pow(d_i*gradients[k][0] + d_j*gradients[k][1], 2);
+                    for (int k_w = k_left; k < k_right; ++k_w) {
+                        for (int k_h = k_top; k < k_bottom; ++k_h) {
+                            k = k_w + k_h*(imageWidth-2);
+//                    for (k = 0; k < gradients.length; k++) {
+                            if (!(gradients[k][0] == 0 || gradients[k][1] == 0)) continue;
+//                            int k_i = k % (imageWidth - 2) + 1;
+//                            int k_j = k / (imageWidth - 2) + 1;
+//                            double d_i = k_i - i;
+//                            double d_j = k_j - j;
+                            double d_i = k_w - i;
+                            double d_j = k_h - j;
+//                            if (Math.abs(d_i) > d_thresh || Math.abs(d_j) > d_thresh) continue;
+                            double mag = Math.sqrt(Math.pow(d_i, 2) + Math.pow(d_j, 2));
+                            if (mag > d_thresh) continue;
+                            mag = mag == 0 ? 1 : mag;
+                            d_i /= mag;
+                            d_j /= mag;
+                            sumC += Math.pow(d_i * gradients[k][0] + d_j * gradients[k][1], 2);
+                        }
                     }
                     // TODO(fyordan): w_c should be the value in a gaussian filtered graydata
                     // sumC *= grayData[n];
@@ -712,6 +747,21 @@ public class MainActivity extends Activity {
             }
             return c_n;
         }
+    }
+
+    // Convert from YUV color to gray - can ignore chromaticity for speed
+
+    protected int[] decodeYUV420SPGrayscale (byte[] yuv420sp, int height, int width)
+    {	// not used here ?
+        final int frameSize = width * height;
+        int[] gray = new int[frameSize];
+
+        for (int pix = 0; pix < frameSize; pix++) {
+            int pixVal = (int) yuv420sp[pix] & 0xff;
+            // format for grey scale integer format data is 0xFFRRGGBB where RR = GG = BB
+            gray[pix] = 0xff000000 | (pixVal << 16) | (pixVal << 8) | pixVal;
+        }
+        return gray;
     }
 
     class GazeDetector extends Detector<Face> {
@@ -730,6 +780,11 @@ public class MainActivity extends Activity {
                     new Rect(0, 0, w, h), 100, baos); // Where 100 is the quality of the generated jpeg
             mFrameArray = baos.toByteArray();
             mBitmap = BitmapFactory.decodeByteArray(mFrameArray, 0, mFrameArray.length);
+//            mGrayData = decodeYUV420SPGrayscale(yuvimage.getYuvData(), yuvimage.getHeight(), yuvimage.getHeight());
+//            mBitmap = Bitmap.createBitmap(yuvimage.getWidth(), yuvimage.getHeight(), Bitmap.Config.ARGB_8888);
+            //mBitmap.setPixels(mGrayData, 0, yuvimage.getWidth(), 0, 0, yuvimage.getWidth(), yuvimage.getHeight());
+//            mBitmap = Bitmap.createBitmap(mGrayData, yuvimage.getWidth(), yuvimage.getHeight(), Bitmap.Config.ARGB_8888);
+//            mBitmap = Bitmap.createBitmap(mGrayData, w, h, Bitmap.Config.ARGB_8888);
             return mDelegate.detect(frame);
         }
 
