@@ -9,6 +9,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.ImageFormat;
 import android.graphics.Paint;
 import android.graphics.Point;
@@ -123,296 +125,6 @@ public class MainActivity extends Activity {
         super.onDestroy();
         mCameraSource.release();
     }
-/*
-    //------- nested class DrawOnTop ---------------------------------------------------------------
-    class DrawOnTop extends View {
-        Bitmap mBitmap;
-        byte[] mYUVData;
-        int[] mRGBData;
-        int mImageWidth, mImageHeight;
-        int mTextsize = 40;        // controls size of text on screen
-        int mLeading;              // spacing between text lines
-        RectF barRect = new RectF();    // used in drawing histogram
-        String TAG = "DrawOnTop";       // for logcat output
-
-        public DrawOnTop(Context context) { // constructor
-            super(context);
-
-            mBitmap = null;    // will be set up later in Preview - PreviewCallback
-            mYUVData = null;
-            mRGBData = null;
-            barRect = new RectF();    // moved here to reduce GC
-            mLeading = mTextsize * 6 / 5;    // adjust line spacing
-
-        }
-
-        Paint makePaint(int color) {
-            Paint mPaint = new Paint();
-            mPaint.setStyle(Paint.Style.FILL);
-            mPaint.setColor(color);
-            mPaint.setTextSize(mTextsize);
-            mPaint.setTypeface(Typeface.MONOSPACE);
-            return mPaint;
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            String TAG = "onDraw";
-            if (mBitmap == null) {    // sanity check
-                Log.w(TAG, "mBitMap is null");
-                super.onDraw(canvas);
-                return;    // because not yet set up
-            }
-
-            // Convert image from YUV to RGB format:
-            decodeYUV420SP(mRGBData, mYUVData, mImageWidth, mImageHeight);
-            mBitmap.setPixels(mRGBData, 0, mImageWidth, 0, 0, mImageWidth, mImageHeight);
-
-            SparseArray<Face> faces = faceDetector.detect(mFrame);
-            double scale = Math.min(
-                    canvas.getWidth()/mBitmap.getWidth(),
-                    canvas.getHeight()/mBitmap.getHeight());
-            for (int i = 0; i < faces.size(); ++i) {
-                Log.w(TAG, "iterating through face " + i);
-                for (Landmark landmark : faces.valueAt(i).getLandmarks()) {
-                    int cx = (int) (landmark.getPosition().x * scale);
-                    int cy = (int) (landmark.getPosition().y * scale);
-                    Paint paint = new Paint();
-                    paint.setColor(Color.GREEN);
-                    paint.setStyle(Paint.Style.STROKE);
-                    paint.setStrokeWidth(5);
-                    canvas.drawCircle(cx, cy, 10, paint);
-                }
-            }
-            //canvas.drawBitmap(mBitmap, src, src, mPaintBlack);
-            super.onDraw(canvas);
-        } // end onDraw method
-
-        protected int calculateEyeCenter(byte[] grayData, double gradientThreshold) {
-            // TODO(fyordan): Shouldn't use mImageWidth and mImageHeight, but grayData dimensions.
-            // Calculate gradients.
-            // Ignore edges of image to not deal with boundaries.
-            double[][] gradients = new double[(mImageWidth-2)*(mImageHeight-2)][2];
-            int k = 0;
-            for(int i=1; i < mImageWidth-1; i++) {
-                for (int j=1; j < mImageHeight-1; j++) {
-                    int n = j*mImageWidth + i;
-                    //double x = i - mImageWidth/2;
-                    //double y = mImageHeight/2 - j;
-                    gradients[k][0] = (grayData[n+1] - grayData[n]);
-                    gradients[k][1] = (grayData[n + mImageWidth] - grayData[n]);
-                    double mag = Math.sqrt(Math.pow(gradients[k][0],2) + Math.pow(gradients[k][1],2));
-                    if (mag > gradientThreshold) {
-                        gradients[k][0] /= mag;
-                        gradients[k][1] /= mag;
-                    } else {
-                        gradients[k][0] = 0;
-                        gradients[k][1] = 0;
-                    }
-                }
-            }
-            // For all potential centers
-            int c_n = gradients.length/2;
-            double max_c = 0;
-            for (int i=1; i < mImageWidth-1; i++) {
-                for (int j=1; j < mImageHeight; j++) {
-                    int n = j*mImageWidth + i;
-                    double sumC = 0;
-                    for (k = 0; k < gradients.length; k++) {
-                        if (!(gradients[k][0]==0 || gradients[k][1]==0)) continue;
-                        int k_i = k%(mImageWidth-2)+1;
-                        int k_j = k/(mImageWidth-2)+1;
-                        double d_i = k_i - i;
-                        double d_j = k_j - j;
-                        double mag = Math.sqrt(Math.pow(d_i,2) + Math.pow(d_j,2));
-                        d_i /= mag;
-                        d_j /= mag;
-                        sumC += Math.pow(d_i*gradients[k][0] + d_j*gradients[k][1], 2);
-                    }
-                    // TODO(fyordan): w_c should be the value in a gaussian filtered graydata
-                    // sumC *= grayData[n];
-                    if (sumC > max_c) {
-                        c_n = n;
-                        max_c = sumC;
-                    }
-                }
-            }
-            return c_n;
-        }
-
-        public void decodeYUV420SP(int[] rgb, byte[] yuv420sp, int width, int height) { // convert image in YUV420SP format to RGB format
-            final int frameSize = width * height;
-
-            for (int j = 0, pix = 0; j < height; j++) {
-                int uvp = frameSize + (j >> 1) * width;    // index to start of u and v data for this row
-                int u = 0, v = 0;
-                for (int i = 0; i < width; i++, pix++) {
-                    int y = (0xFF & ((int) yuv420sp[pix])) - 16;
-                    if (y < 0) y = 0;
-                    if ((i & 1) == 0) { // even row & column (u & v are at quarter resolution of y)
-                        v = (0xFF & yuv420sp[uvp++]) - 128;
-                        u = (0xFF & yuv420sp[uvp++]) - 128;
-                    }
-
-                    int y1192 = 1192 * y;
-                    int r = (y1192 + 1634 * v);
-                    int g = (y1192 - 833 * v - 400 * u);
-                    int b = (y1192 + 2066 * u);
-
-                    if (r < 0) r = 0;
-                    else if (r > 0x3FFFF) r = 0x3FFFF;
-                    if (g < 0) g = 0;
-                    else if (g > 0x3FFFF) g = 0x3FFFF;
-                    if (b < 0) b = 0;
-                    else if (b > 0x3FFFF) b = 0x3FFFF;
-
-                    rgb[pix] = 0xFF000000 | ((r << 6) & 0xFF0000) | ((g >> 2) & 0xFF00) | ((b >> 10) & 0xFF);
-                }
-            }
-        }
-
-        public void decodeYUV420SPGrayscale(int[] rgb, byte[] yuv420sp, int width, int height) { // extract grey RGB format image --- not used currently
-            final int frameSize = width * height;
-
-            // This is much simpler since we can ignore the u and v components
-            for (int pix = 0; pix < frameSize; pix++) {
-                int y = (0xFF & ((int) yuv420sp[pix])) - 16;
-                if (y < 0) y = 0;
-                if (y > 0xFF) y = 0xFF;
-                rgb[pix] = 0xFF000000 | (y << 16) | (y << 8) | y;
-            }
-        }
-    }
-
-    // -------- nested class Preview --------------------------------------------------------------
-
-    class Preview extends SurfaceView implements SurfaceHolder.Callback {    // deal with preview that will be shown on screen
-        SurfaceHolder mHolder;
-        DrawOnTop mDrawOnTop;
-        boolean mFinished;
-        String TAG = "PreView";    // tag for LogCat
-
-        public Preview (Context context, DrawOnTop drawOnTop) { // constructor
-            super(context);
-
-            mDrawOnTop = drawOnTop;
-            mFinished = false;
-
-            // Install a SurfaceHolder.Callback so we get notified when the
-            // underlying surface is created and destroyed.
-            mHolder = getHolder();
-            mHolder.addCallback(this);
-            //  Following is deprecated setting, but required on Android versions prior to 3.0:
-            //  mHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
-        }
-
-        public void surfaceCreated (SurfaceHolder holder) {
-            String TAG = "surfaceCreated";
-            Camera.PreviewCallback mPreviewCallback;
-            if (mCamera == null) {    // sanity check
-                Log.e(TAG, "ERROR: camera not open");
-                System.exit(0);
-            }
-            Camera.CameraInfo info = new android.hardware.Camera.CameraInfo();
-            android.hardware.Camera.getCameraInfo(mCam, info);
-            // show some potentially useful information in log file
-            switch (info.facing) {    // see which camera we are using
-                case Camera.CameraInfo.CAMERA_FACING_BACK:
-                    Log.i(TAG, "Camera " + mCam + " facing back");
-                    break;
-                case Camera.CameraInfo.CAMERA_FACING_FRONT:
-                    Log.i(TAG, "Camera " + mCam + " facing front");
-                    break;
-            }
-            if (DBG) Log.i(TAG, "Camera " + mCam + " orientation " + info.orientation);
-
-            mPreviewCallback = new Camera.PreviewCallback() {
-                public void onPreviewFrame(byte[] data, Camera camera) { // callback
-                    String TAG = "onPreviewFrame";
-                    if ((mDrawOnTop == null) || mFinished) return;
-                    if (mDrawOnTop.mBitmap == null)  // need to initialize the drawOnTop companion?
-                        setupArrays(data, camera);
-                    // Pass YUV image data to draw-on-top companion
-                    System.arraycopy(data, 0, mDrawOnTop.mYUVData, 0, data.length);
-                    mDrawOnTop.invalidate();
-                }
-            };
-
-            try {
-                mCamera.setPreviewDisplay(holder);
-                // Preview callback will be used whenever new viewfinder frame is available
-                mCamera.setPreviewCallback(mPreviewCallback);
-            } catch (IOException e) {
-                Log.e(TAG, "ERROR: surfaceCreated - IOException " + e);
-                mCamera.release();
-                mCamera = null;
-            }
-        }
-
-        public void surfaceDestroyed (SurfaceHolder holder) {
-            String TAG = "surfaceDestroyed";
-            // Surface will be destroyed when we return, so stop the preview.
-            mFinished = true;
-            if (mCamera != null) {    // not expected
-                Log.e(TAG, "ERROR: camera still open");
-                mCamera.setPreviewCallback(null);
-                mCamera.stopPreview();
-                mCamera.release();
-                mCamera = null;
-            }
-        }
-
-        public void surfaceChanged (SurfaceHolder holder, int format, int w, int h) {
-            String TAG = "surfaceChanged";
-            //	Now that the size is known, set up the camera parameters and begin the preview.
-            if (mCamera == null) {    // sanity check
-                Log.e(TAG, "ERROR: camera not open");
-                System.exit(0);
-            }
-            if (DBG) Log.v(TAG, "Given parameters h " + h + " w " + w);
-            if (DBG) Log.v(TAG, "What we are asking for h " + mCameraHeight + " w " + mCameraWidth);
-            if (h != mCameraHeight || w != mCameraWidth)
-                Log.w(TAG, "Mismatch in image size " + " " + h + " x " + w + " vs " + mCameraHeight + " x " + mCameraWidth);
-            // this will be sorted out with a setParamaters() on mCamera
-            Camera.Parameters parameters = mCamera.getParameters();
-            parameters.setPreviewSize(mCameraWidth, mCameraHeight);
-            // check whether following is within PreviewFpsRange ?
-            parameters.setPreviewFrameRate(15);    // deprecated
-            // parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
-            try {
-                mCamera.setParameters(parameters);
-            } catch (Exception e) {
-                Log.e(TAG, "ERROR: setParameters exception " + e);
-                System.exit(0);
-            }
-            mCamera.startPreview();
-        }
-
-        private void setupArrays (byte[] data, Camera camera) {
-            String TAG = "setupArrays";
-            if (DBG) Log.i(TAG, "Setting up arrays");
-            Camera.Parameters params = camera.getParameters();
-            mDrawOnTop.mImageHeight = params.getPreviewSize().height;
-            mDrawOnTop.mImageWidth = params.getPreviewSize().width;
-            if (DBG)
-                Log.i(TAG, "height " + mDrawOnTop.mImageHeight + " width " + mDrawOnTop.mImageWidth);
-            mDrawOnTop.mBitmap = Bitmap.createBitmap(mDrawOnTop.mImageWidth,
-                    mDrawOnTop.mImageHeight, Bitmap.Config.RGB_565);
-
-            mFrame = new Frame.Builder().setBitmap(mDrawOnTop.mBitmap).build();
-
-            mDrawOnTop.mRGBData = new int[mDrawOnTop.mImageWidth * mDrawOnTop.mImageHeight];
-            if (DBG)
-                Log.i(TAG, "data length " + data.length); // should be width*height*3/2 for YUV format
-            mDrawOnTop.mYUVData = new byte[data.length];
-            int dataLengthExpected = mDrawOnTop.mImageWidth * mDrawOnTop.mImageHeight * 3 / 2;
-            if (data.length != dataLengthExpected)
-                Log.e(TAG, "ERROR: data length mismatch " + data.length + " vs " + dataLengthExpected);
-        }
-
-    }
-
-    */
 
     // Used to load the 'native-lib' library on application startup.
     static {
@@ -641,12 +353,13 @@ public class MainActivity extends Activity {
                             cx+eyeRegionWidth/2, cy+eyeRegionHeight/2, paint);
                     //canvas.drawCircle(cx, cy, 10, paint);
 
-                    mEyeBitmap = Bitmap.createBitmap(mBitmap,
-                            (int)landmark.getPosition().x-eyeRegionWidth/2,
-                            (int)landmark.getPosition().y-eyeRegionHeight/2,
-                            eyeRegionWidth, eyeRegionHeight);
+                    mEyeBitmap = toGrayscale(
+                            Bitmap.createBitmap(mBitmap,
+                                    (int)landmark.getPosition().x-eyeRegionWidth/2,
+                                    (int)landmark.getPosition().y-eyeRegionHeight/2,
+                                    eyeRegionWidth, eyeRegionHeight));
 
-                    iris_pixel = calculateEyeCenter(mEyeBitmap, 10.0, 30);
+                    iris_pixel = calculateEyeCenter(mEyeBitmap, 25.0, 20);
 //                    if (mBitmapGradientMag != null)  canvas.drawBitmap(mBitmapGradientMag, 0, 0, paint);
                     //canvas.drawBitmap(eyeBitmap, 0, 0, paint);
                 }
@@ -671,26 +384,20 @@ public class MainActivity extends Activity {
             int imageWidth = eyeMap.getWidth();
             int imageHeight = eyeMap.getHeight();
             int grayData[] = new int[imageWidth*imageHeight];
-            int mags[] = new int[(imageWidth-2)*(imageHeight-2)];
+            double mags[] = new double[(imageWidth-2)*(imageHeight-2)];
             Log.e("CalculateEyeCenter", "Size is : " + imageWidth*imageHeight);
             eyeMap.getPixels(grayData, 0, imageWidth, 0, 0, imageWidth, imageHeight);
             double[][] gradients = new double[(imageWidth-2)*(imageHeight-2)][2];
-//            Pair<Point, Pair<float, float>> [] gradients =
-//                    new Pair<Point, Pair<float,float>>[(imageWidth-2)*(imageHeight-2)];
             int k = 0;
             int magCount = 0;
             for(int i=1; i < imageWidth-1; i++) {
                 for (int j=1; j < imageHeight-1; j++) {
                     int n = j*imageWidth + i;
-                    //double x = i - imageWidth/2;
-                    //double y = imageHeight/2 - j;
-//                    gradients[k][0] = (grayData[n+1] - grayData[n]);
-//                    gradients[k][1] = (grayData[n + imageWidth] - grayData[n]);
                     gradients[k][0] = (grayData[n+1] & 0xff) - (grayData[n] & 0xff);
                     gradients[k][1] = (grayData[n + imageWidth] & 0xff) - (grayData[n] & 0xff);
                     double mag = Math.sqrt(Math.pow(gradients[k][0],2) + Math.pow(gradients[k][1],2));
-                    mags[k] = (int) mag;
-                    if (mag > gradientThreshold) {
+                    mags[k] = mag;
+                    if ((int)mag > gradientThreshold) {
                         gradients[k][0] /= mag;
                         gradients[k][1] /= mag;
                         magCount++;
@@ -701,34 +408,26 @@ public class MainActivity extends Activity {
                     k++;
                 }
             }
-            //mBitmapGradientMag = BitmapFactory.decodeByteArray(mags, 0, mags.length);
-//            mBitmapGradientMag.copyPixelsFromBuffer(ByteBuffer.wrap(mags));
-            //mBitmapGradientMag = Bitmap.createBitmap(mags, imageWidth, imageHeight, Bitmap.Config.ARGB_8888);
             Log.e("CalculateEyeCenter", "mags above threshold: " + magCount);
             Log.e("CalculateEyeCenter", "Now we need to iterate through them all again");
             // For all potential centers
             int c_n = gradients.length/2;
             double max_c = 0;
-            for (int i=1; i < imageWidth-1; i+=5) {
-                for (int j=1; j < imageHeight-1; j+=5) {
+            for (int i=1; i < imageWidth-1; i+=3) {
+                for (int j=1; j < imageHeight-1; j+=3) {
                     int n = j*imageWidth + i;
                     int k_left = Math.max(0, i - d_thresh - 1);
                     int k_right= Math.min(imageWidth-2, i+d_thresh-1);
                     int k_top = Math.max(0, j - d_thresh-1);
                     int k_bottom = Math.min(imageHeight-2, j+d_thresh-1);
                     double sumC = 0;
-                    for (int k_w = k_left; k < k_right; ++k_w) {
-                        for (int k_h = k_top; k < k_bottom; ++k_h) {
+                    for (int k_h = k_top; k_h < k_bottom; ++k_h) {
+                        for (int k_w = k_left; k_w < k_right; ++k_w) {
                             k = k_w + k_h*(imageWidth-2);
-//                    for (k = 0; k < gradients.length; k++) {
-                            if (!(gradients[k][0] == 0 || gradients[k][1] == 0)) continue;
-//                            int k_i = k % (imageWidth - 2) + 1;
-//                            int k_j = k / (imageWidth - 2) + 1;
-//                            double d_i = k_i - i;
-//                            double d_j = k_j - j;
+                            if ((gradients[k][0] == 0 && gradients[k][1] == 0)) continue;
                             double d_i = k_w - i;
                             double d_j = k_h - j;
-//                            if (Math.abs(d_i) > d_thresh || Math.abs(d_j) > d_thresh) continue;
+                            if (Math.abs(d_i) > d_thresh || Math.abs(d_j) > d_thresh) continue;
                             double mag = Math.sqrt(Math.pow(d_i, 2) + Math.pow(d_j, 2));
                             if (mag > d_thresh) continue;
                             mag = mag == 0 ? 1 : mag;
@@ -738,7 +437,6 @@ public class MainActivity extends Activity {
                         }
                     }
                     // TODO(fyordan): w_c should be the value in a gaussian filtered graydata
-                    // sumC *= grayData[n];
                     if (sumC > max_c) {
                         c_n = n;
                         max_c = sumC;
@@ -749,19 +447,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Convert from YUV color to gray - can ignore chromaticity for speed
-
-    protected int[] decodeYUV420SPGrayscale (byte[] yuv420sp, int height, int width)
-    {	// not used here ?
-        final int frameSize = width * height;
-        int[] gray = new int[frameSize];
-
-        for (int pix = 0; pix < frameSize; pix++) {
-            int pixVal = (int) yuv420sp[pix] & 0xff;
-            // format for grey scale integer format data is 0xFFRRGGBB where RR = GG = BB
-            gray[pix] = 0xff000000 | (pixVal << 16) | (pixVal << 8) | pixVal;
-        }
-        return gray;
+    protected Bitmap toGrayscale(Bitmap bmp){
+        Bitmap grayscale = Bitmap.createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(grayscale);
+        Paint paint=new Paint();
+        ColorMatrix cm = new ColorMatrix();
+        cm.setSaturation(0);
+        ColorMatrixColorFilter f = new ColorMatrixColorFilter(cm);
+        paint.setColorFilter(f);
+        c.drawBitmap(bmp, 0, 0, paint);
+        return grayscale;
     }
 
     class GazeDetector extends Detector<Face> {
@@ -780,11 +475,6 @@ public class MainActivity extends Activity {
                     new Rect(0, 0, w, h), 100, baos); // Where 100 is the quality of the generated jpeg
             mFrameArray = baos.toByteArray();
             mBitmap = BitmapFactory.decodeByteArray(mFrameArray, 0, mFrameArray.length);
-//            mGrayData = decodeYUV420SPGrayscale(yuvimage.getYuvData(), yuvimage.getHeight(), yuvimage.getHeight());
-//            mBitmap = Bitmap.createBitmap(yuvimage.getWidth(), yuvimage.getHeight(), Bitmap.Config.ARGB_8888);
-            //mBitmap.setPixels(mGrayData, 0, yuvimage.getWidth(), 0, 0, yuvimage.getWidth(), yuvimage.getHeight());
-//            mBitmap = Bitmap.createBitmap(mGrayData, yuvimage.getWidth(), yuvimage.getHeight(), Bitmap.Config.ARGB_8888);
-//            mBitmap = Bitmap.createBitmap(mGrayData, w, h, Bitmap.Config.ARGB_8888);
             return mDelegate.detect(frame);
         }
 
