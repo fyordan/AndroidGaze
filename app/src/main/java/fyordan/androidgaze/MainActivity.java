@@ -72,8 +72,10 @@ public class MainActivity extends Activity {
     protected int mDownSampleScale = 4;
     protected int mUpSampleScale = 4;
     protected int mDThresh = 5;
-    protected double mGradThresh = 15.0;
+    protected double mGradThresh = 20.0;
     protected int iris_pixel = 0;
+    protected int cx;
+    protected int cy;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -339,7 +341,7 @@ public class MainActivity extends Activity {
             float top = y - yOffset;
             float right = x + xOffset;
             float bottom = y + yOffset;
-            canvas.drawRect(left, top, right, bottom, mBoxPaint);
+//            canvas.drawRect(left, top, right, bottom, mBoxPaint);
 //            canvas.drawCircle(x,y,5,mBoxPaint);
 
 //            canvas.drawBitmap(mBitmap, left, top, null);
@@ -348,32 +350,30 @@ public class MainActivity extends Activity {
                 int landmark_type = landmark.getType();
 //                if (landmark_type == Landmark.LEFT_EYE || landmark_type == Landmark.RIGHT_EYE) {
                 if (landmark_type == Landmark.LEFT_EYE) {
-                    int cx = (int) translateX(landmark.getPosition().x);
-                    int cy = (int) translateY(landmark.getPosition().y);
+                    cx = (int) translateX(landmark.getPosition().x);
+                    cy = (int) translateY(landmark.getPosition().y);
                     Paint paint = new Paint();
                     paint.setColor(Color.GREEN);
                     paint.setStyle(Paint.Style.STROKE);
                     paint.setStrokeWidth(5);
 
                     // TODO(fyordan): These numbers are arbitray, probably should be proportional to face dimensions.
-                    canvas.drawRect(cx-eyeRegionWidth/2, cy-eyeRegionHeight/2,
-                            cx+eyeRegionWidth/2, cy+eyeRegionHeight/2, paint);
+//                    canvas.drawRect(cx-eyeRegionWidth/2, cy-eyeRegionHeight/2,
+//                            cx+eyeRegionWidth/2, cy+eyeRegionHeight/2, paint);
                     //canvas.drawCircle(cx, cy, 10, paint);
+                    int eye_region_left = (int)landmark.getPosition().x-eyeRegionWidth/2;
+                    int eye_region_top = (int)landmark.getPosition().y-eyeRegionHeight/2;
 
                     mEyeBitmap = toGrayscale(
                             createBitmap(mBitmap,
-                                    (int)landmark.getPosition().x-eyeRegionWidth/2,
-                                    (int)landmark.getPosition().y-eyeRegionHeight/2,
+                                    eye_region_left,
+                                    eye_region_top,
                                     eyeRegionWidth, eyeRegionHeight));
 
                     mEyeBitmap = createScaledBitmap(mEyeBitmap,
                             eyeRegionWidth/mDownSampleScale,
                             eyeRegionHeight/mDownSampleScale,
                             true);
-//                    mEyeBitmap = createScaledBitmap(mEyeBitmap,
-//                            eyeRegionWidth,
-//                            eyeRegionHeight,
-//                            false);
 
                     iris_pixel = calculateEyeCenter(mEyeBitmap, mGradThresh, mDThresh);
 //                    if (mBitmapGradientMag != null)  canvas.drawBitmap(mBitmapGradientMag, 0, 0, paint);
@@ -393,6 +393,11 @@ public class MainActivity extends Activity {
                 int iris_x = iris_pixel%mEyeBitmap.getWidth()*mDownSampleScale*mUpSampleScale;
                 int iris_y = iris_pixel/mEyeBitmap.getWidth()*mDownSampleScale*mUpSampleScale;
                 canvas.drawCircle(iris_x, iris_y, mDownSampleScale*mUpSampleScale*mDThresh, mBoxPaint);
+            }
+            if (mEyeBitmap != null) {
+                int iris_X = (iris_pixel%mEyeBitmap.getWidth())*mDownSampleScale + cx - (int)scaleX((float)eyeRegionWidth/2);
+                int iris_Y = (iris_pixel/mEyeBitmap.getWidth())*mDownSampleScale + cy - (int)scaleY((float)eyeRegionHeight/2);
+                canvas.drawCircle(iris_X, iris_Y, mDThresh, mBoxPaint);
             }
         }
 
