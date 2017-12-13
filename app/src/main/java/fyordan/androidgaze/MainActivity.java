@@ -45,8 +45,12 @@ import com.google.android.gms.vision.face.Landmark;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 import java.util.Arrays;
 import java.util.List;
+
+import static android.graphics.Bitmap.createBitmap;
+import static android.graphics.Bitmap.createScaledBitmap;
 
 public class MainActivity extends Activity {
 
@@ -54,12 +58,11 @@ public class MainActivity extends Activity {
 
     protected static FaceDetector faceDetector = null;
     protected static GazeDetector gazeDetector = null;
-//    protected static Frame mFrame = null;
     protected static Bitmap mBitmap;
     protected static Bitmap mEyeBitmap;
     protected static Bitmap mBitmapGradientMag;
+    protected static int[] mDebugArray;
     protected static byte[] mFrameArray;
-    protected static int[] mGrayData;
     protected CameraSource mCameraSource = null;
     protected CameraSourcePreview mPreview;
     protected GraphicOverlay mGraphicOverlay;
@@ -354,18 +357,31 @@ public class MainActivity extends Activity {
                     //canvas.drawCircle(cx, cy, 10, paint);
 
                     mEyeBitmap = toGrayscale(
-                            Bitmap.createBitmap(mBitmap,
+                            createBitmap(mBitmap,
                                     (int)landmark.getPosition().x-eyeRegionWidth/2,
                                     (int)landmark.getPosition().y-eyeRegionHeight/2,
                                     eyeRegionWidth, eyeRegionHeight));
 
-                    iris_pixel = calculateEyeCenter(mEyeBitmap, 25.0, 20);
+                    mEyeBitmap = createScaledBitmap(mEyeBitmap,
+                            eyeRegionWidth/4,
+                            eyeRegionHeight/4,
+                            true);
+                    mEyeBitmap = createScaledBitmap(mEyeBitmap,
+                            eyeRegionWidth,
+                            eyeRegionHeight,
+                            false);
+
+                    iris_pixel = calculateEyeCenter(mEyeBitmap, 10.0, 20);
 //                    if (mBitmapGradientMag != null)  canvas.drawBitmap(mBitmapGradientMag, 0, 0, paint);
                     //canvas.drawBitmap(eyeBitmap, 0, 0, paint);
                 }
             }
             if (mEyeBitmap != null) {
-                Bitmap resizedBitmap = Bitmap.createScaledBitmap(mEyeBitmap,
+                Bitmap debugBitmap = createBitmap(mEyeBitmap.getWidth()-2, mEyeBitmap.getHeight()-2, Bitmap.Config.ARGB_8888);//BitmapFactory.decodeByteArray(mDebugArray, 0, mDebugArray.length);
+                debugBitmap.copyPixelsFromBuffer(IntBuffer.wrap(mDebugArray));
+                Bitmap resizedBitmap = Bitmap.createScaledBitmap(
+//                        mEyeBitmap,
+                        debugBitmap,
                         eyeRegionWidth*4,
                         eyeRegionHeight*4,
                         false);
@@ -390,20 +406,27 @@ public class MainActivity extends Activity {
             double[][] gradients = new double[(imageWidth-2)*(imageHeight-2)][2];
             int k = 0;
             int magCount = 0;
-            for(int i=1; i < imageWidth-1; i++) {
-                for (int j=1; j < imageHeight-1; j++) {
+            mDebugArray = new int[(imageWidth-2)*(imageHeight-2)];
+            for(int j=1; j < imageHeight-1; j++) {
+                for (int i=1; i < imageWidth-1; i++) {
                     int n = j*imageWidth + i;
                     gradients[k][0] = (grayData[n+1] & 0xff) - (grayData[n] & 0xff);
                     gradients[k][1] = (grayData[n + imageWidth] & 0xff) - (grayData[n] & 0xff);
                     double mag = Math.sqrt(Math.pow(gradients[k][0],2) + Math.pow(gradients[k][1],2));
                     mags[k] = mag;
-                    if ((int)mag > gradientThreshold) {
+                    mDebugArray[k] = grayData[n];
+                    if (mag > gradientThreshold) {
                         gradients[k][0] /= mag;
                         gradients[k][1] /= mag;
                         magCount++;
+                        mDebugArray[k] = 0xffffffff; //grayData[n];
+//                        mDebugArray[k] = 0xff000000 | (int)gradients[k][0];
+//                        mDebugArray[k] = 0xff000000 | (int) mag << 16 | (int) mag << 8 | (int) mag;
+//                        mDebugArray[k] = 0xffffffff;
                     } else {
                         gradients[k][0] = 0;
                         gradients[k][1] = 0;
+//                        mDebugArray[k] = 0xff000000;
                     }
                     k++;
                 }
@@ -437,6 +460,7 @@ public class MainActivity extends Activity {
                         }
                     }
                     // TODO(fyordan): w_c should be the value in a gaussian filtered graydata
+                    sumC /= (grayData[n] & 0xff);
                     if (sumC > max_c) {
                         c_n = n;
                         max_c = sumC;
@@ -448,7 +472,7 @@ public class MainActivity extends Activity {
     }
 
     protected Bitmap toGrayscale(Bitmap bmp){
-        Bitmap grayscale = Bitmap.createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
+        Bitmap grayscale = createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(grayscale);
         Paint paint=new Paint();
         ColorMatrix cm = new ColorMatrix();
