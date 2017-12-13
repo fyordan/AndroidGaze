@@ -60,15 +60,19 @@ public class MainActivity extends Activity {
     protected static GazeDetector gazeDetector = null;
     protected static Bitmap mBitmap;
     protected static Bitmap mEyeBitmap;
-    protected static Bitmap mBitmapGradientMag;
     protected static int[] mDebugArray;
     protected static byte[] mFrameArray;
     protected CameraSource mCameraSource = null;
     protected CameraSourcePreview mPreview;
     protected GraphicOverlay mGraphicOverlay;
 
+    protected boolean DEBUG_MODE = true;
     protected int eyeRegionWidth = 80;
     protected int eyeRegionHeight = 60;
+    protected int mDownSampleScale = 4;
+    protected int mUpSampleScale = 4;
+    protected int mDThresh = 5;
+    protected double mGradThresh = 15.0;
     protected int iris_pixel = 0;
 
     @Override
@@ -363,32 +367,32 @@ public class MainActivity extends Activity {
                                     eyeRegionWidth, eyeRegionHeight));
 
                     mEyeBitmap = createScaledBitmap(mEyeBitmap,
-                            eyeRegionWidth/4,
-                            eyeRegionHeight/4,
+                            eyeRegionWidth/mDownSampleScale,
+                            eyeRegionHeight/mDownSampleScale,
                             true);
-                    mEyeBitmap = createScaledBitmap(mEyeBitmap,
-                            eyeRegionWidth,
-                            eyeRegionHeight,
-                            false);
+//                    mEyeBitmap = createScaledBitmap(mEyeBitmap,
+//                            eyeRegionWidth,
+//                            eyeRegionHeight,
+//                            false);
 
-                    iris_pixel = calculateEyeCenter(mEyeBitmap, 10.0, 20);
+                    iris_pixel = calculateEyeCenter(mEyeBitmap, mGradThresh, mDThresh);
 //                    if (mBitmapGradientMag != null)  canvas.drawBitmap(mBitmapGradientMag, 0, 0, paint);
                     //canvas.drawBitmap(eyeBitmap, 0, 0, paint);
                 }
             }
-            if (mEyeBitmap != null) {
+            if (mEyeBitmap != null && DEBUG_MODE) {
                 Bitmap debugBitmap = createBitmap(mEyeBitmap.getWidth()-2, mEyeBitmap.getHeight()-2, Bitmap.Config.ARGB_8888);//BitmapFactory.decodeByteArray(mDebugArray, 0, mDebugArray.length);
                 debugBitmap.copyPixelsFromBuffer(IntBuffer.wrap(mDebugArray));
                 Bitmap resizedBitmap = Bitmap.createScaledBitmap(
 //                        mEyeBitmap,
                         debugBitmap,
-                        eyeRegionWidth*4,
-                        eyeRegionHeight*4,
+                        eyeRegionWidth*mUpSampleScale,
+                        eyeRegionHeight*mUpSampleScale,
                         false);
                 canvas.drawBitmap(resizedBitmap, 0, 0, mBoxPaint);
-                int iris_x = iris_pixel%mEyeBitmap.getWidth()*4;
-                int iris_y = iris_pixel/mEyeBitmap.getWidth()*4;
-                canvas.drawCircle(iris_x, iris_y, 80, mBoxPaint);
+                int iris_x = iris_pixel%mEyeBitmap.getWidth()*mDownSampleScale*mUpSampleScale;
+                int iris_y = iris_pixel/mEyeBitmap.getWidth()*mDownSampleScale*mUpSampleScale;
+                canvas.drawCircle(iris_x, iris_y, mDownSampleScale*mUpSampleScale*mDThresh, mBoxPaint);
             }
         }
 
@@ -419,14 +423,10 @@ public class MainActivity extends Activity {
                         gradients[k][0] /= mag;
                         gradients[k][1] /= mag;
                         magCount++;
-                        mDebugArray[k] = 0xffffffff; //grayData[n];
-//                        mDebugArray[k] = 0xff000000 | (int)gradients[k][0];
-//                        mDebugArray[k] = 0xff000000 | (int) mag << 16 | (int) mag << 8 | (int) mag;
-//                        mDebugArray[k] = 0xffffffff;
+                        mDebugArray[k] = 0xffffffff;
                     } else {
                         gradients[k][0] = 0;
                         gradients[k][1] = 0;
-//                        mDebugArray[k] = 0xff000000;
                     }
                     k++;
                 }
