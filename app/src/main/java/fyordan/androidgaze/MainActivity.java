@@ -66,16 +66,22 @@ public class MainActivity extends Activity {
     protected CameraSourcePreview mPreview;
     protected GraphicOverlay mGraphicOverlay;
 
-    protected boolean DEBUG_MODE = true;
+    protected boolean DEBUG_MODE =
+            true;
+//            false;
     protected int eyeRegionWidth = 80;
     protected int eyeRegionHeight = 60;
-    protected int mDownSampleScale = 4;
+    protected int mDownSampleScale = 2;
     protected int mUpSampleScale = 4;
-    protected int mDThresh = 5;
-    protected double mGradThresh = 20.0;
+    protected int mDThresh = 10;
+    protected double mGradThresh = 25.0;
     protected int iris_pixel = 0;
     protected int cx;
     protected int cy;
+    protected int mUpThreshold = 8;
+    protected int mDownThreshold = -4;
+    protected int mLeftThreshold = 6;
+    protected int mRightThreshold = -6;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -395,9 +401,21 @@ public class MainActivity extends Activity {
                 canvas.drawCircle(iris_x, iris_y, mDownSampleScale*mUpSampleScale*mDThresh, mBoxPaint);
             }
             if (mEyeBitmap != null) {
-                int iris_X = (iris_pixel%mEyeBitmap.getWidth())*mDownSampleScale + cx - (int)scaleX((float)eyeRegionWidth/2);
-                int iris_Y = (iris_pixel/mEyeBitmap.getWidth())*mDownSampleScale + cy - (int)scaleY((float)eyeRegionHeight/2);
-                canvas.drawCircle(iris_X, iris_Y, mDThresh, mBoxPaint);
+//                int iris_X = (-iris_pixel%mEyeBitmap.getWidth())*mDownSampleScale + cx + (int)scaleX((float)eyeRegionWidth/2);
+//                int iris_Y = (iris_pixel/mEyeBitmap.getWidth())*mDownSampleScale + cy - (int)scaleY((float)eyeRegionHeight/2);
+//                canvas.drawCircle(iris_X, iris_Y, mDThresh, mBoxPaint);
+                Paint paint = new Paint();
+                paint.setColor(Color.GREEN);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(5);
+                paint.setTextSize(60);
+                int x_gaze = iris_pixel%mEyeBitmap.getWidth() - mEyeBitmap.getWidth()/2;
+                int y_gaze = mEyeBitmap.getHeight()/2 - iris_pixel/mEyeBitmap.getWidth();
+                if (x_gaze < mRightThreshold) { canvas.drawText("Right", 400, 200, paint); }
+                if (x_gaze > mLeftThreshold) { canvas.drawText("Left", 400, 200, paint); }
+                if (y_gaze > mUpThreshold) { canvas.drawText("Up", 400, 400, paint); }
+                if (y_gaze < mDownThreshold) { canvas.drawText("Down", 400, 400, paint); }
+                Log.e("EyePixelVector", "X: " + x_gaze + "  Y: " + y_gaze);
             }
         }
 
@@ -405,6 +423,7 @@ public class MainActivity extends Activity {
             // TODO(fyordan): Shouldn't use mImageWidth and mImageHeight, but grayData dimensions.
             // Calculate gradients.
             // Ignore edges of image to not deal with boundaries.
+
             Log.e("CalculateEyeCenter", "Well it entered");
             int imageWidth = eyeMap.getWidth();
             int imageHeight = eyeMap.getHeight();
@@ -441,8 +460,8 @@ public class MainActivity extends Activity {
             // For all potential centers
             int c_n = gradients.length/2;
             double max_c = 0;
-            for (int i=1; i < imageWidth-1; i+=3) {
-                for (int j=1; j < imageHeight-1; j+=3) {
+            for (int i=1; i < imageWidth-1; i++) {
+                for (int j=1; j < imageHeight-1; j++) {
                     int n = j*imageWidth + i;
                     int k_left = Math.max(0, i - d_thresh - 1);
                     int k_right= Math.min(imageWidth-2, i+d_thresh-1);
